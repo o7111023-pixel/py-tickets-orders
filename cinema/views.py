@@ -1,4 +1,4 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, generics
 
 from django.db.models import F, Count
 from rest_framework.permissions import IsAuthenticated
@@ -132,3 +132,17 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+
+class OrderListView(generics.ListAPIView):
+    serializer_class = OrderListSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        return (
+            Order.objects
+            .filter(user=self.request.user)
+            .prefetch_related(
+                "tickets__movie_session__movie"
+            )
+        )
