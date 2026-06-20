@@ -1,9 +1,15 @@
-from rest_framework import viewsets, generics
-
 from django.db.models import F, Count
+from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from cinema.models import Genre, Actor, CinemaHall, Movie, MovieSession, Order
+from cinema.models import (
+    Genre,
+    Actor,
+    CinemaHall,
+    Movie,
+    MovieSession,
+    Order,
+)
 
 from cinema.serializers import (
     GenreSerializer,
@@ -60,14 +66,25 @@ class MovieViewSet(viewsets.ModelViewSet):
         title = self.request.query_params.get("title")
 
         if actors:
-            queryset = queryset.filter(actors__id__in=actors.split(","))
+            queryset = queryset.filter(
+                actors__id__in=actors.split(",")
+            )
+
         if genres:
-            queryset = queryset.filter(genres__id__in=genres.split(","))
+            queryset = queryset.filter(
+                genres__id__in=genres.split(",")
+            )
+
         if title:
-            queryset = queryset.filter(title__icontains=title)
+            queryset = queryset.filter(
+                title__icontains=title
+            )
 
         if self.action in ("list", "retrieve"):
-            return queryset.prefetch_related("actors", "genres")
+            queryset = queryset.prefetch_related(
+                "actors",
+                "genres",
+            )
 
         return queryset.distinct()
 
@@ -89,60 +106,69 @@ class MovieSessionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = self.queryset
 
-        if self.action == "list":
-            queryset = queryset.prefetch_related("tickets").annotate(
-                tickets_available=(
-                    F("cinema_hall__rows") * F("cinema_hall__seats_in_row")
-                    - Count("tickets")
-                )
-            )
-
         date = self.request.query_params.get("date")
         movie = self.request.query_params.get("movie")
 
         if date:
-            queryset = queryset.filter(show_time__date=date)
+            queryset = queryset.filter(
+                show_time__date=date
+            )
 
         if movie:
-            queryset = queryset.filter(movie_id=movie)
+            queryset = queryset.filter(
+                movie_id=movie
+            )
+
+        if self.action == "list":
+            queryset = (
+                queryset
+                .select_related(
+                    "movie",
+                    "cinema_hall",
+                )
+                .prefetch_related("tickets")
+                .annotate(
+                    tickets_available=(
+                        F("cinema_hall__rows")
+                        * F("cinema_hall__seats_in_row")
+                        - Count("tickets")
+                    )
+                )
+            )
+
+        if self.action == "retrieve":
+            queryset = queryset.select_related(
+                "movie",
+                "cinema_hall",
+            ).prefetch_related(
+                "movie__actors",
+                "movie__genres",
+            )
 
         return queryset
 
 
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
-    serializer_class = OrderSerializer
     permission_classes = (IsAuthenticated,)
 
     def get_serializer_class(self):
         if self.action == "list":
             return OrderListSerializer
+
         return OrderSerializer
 
     def get_queryset(self):
-        queryset = self.queryset.filter(user=self.request.user)
-
-        if self.action == "list":
-            queryset = queryset.prefetch_related(
+        queryset = (
+            self.queryset
+            .filter(user=self.request.user)
+            .prefetch_related(
                 "tickets__movie_session__movie",
                 "tickets__movie_session__cinema_hall",
             )
+        )
 
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-
-class OrderListView(generics.ListAPIView):
-    serializer_class = OrderListSerializer
-    permission_classes = (IsAuthenticated,)
-
-    def get_queryset(self):
-        return (
-            Order.objects
-            .filter(user=self.request.user)
-            .prefetch_related(
-                "tickets__movie_session__movie"
-            )
-        )
+        serializer.save()
